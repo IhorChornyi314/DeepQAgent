@@ -1,3 +1,8 @@
+"""
+Most of the algorithm used here was taken from https://towardsdatascience.com/deep-q-learning-tutorial-mindqn-2a4c855abffc
+"""
+
+
 import numpy as np
 from tensorflow import keras
 from collections import deque
@@ -61,13 +66,9 @@ class Agent:
 
     def choose_action(self, observation):
         random_number = np.random.rand()
-        # Explore using the Epsilon Greedy Exploration Strategy
         if random_number <= self._epsilon:
-            # Explore
             action = self._env.action_space.sample()
         else:
-            # Exploit best known action
-            # model dims are (batch, env.observation_space.n)
             encoded = observation
             encoded_reshaped = encoded.reshape([1, encoded.shape[0]])
             predicted = self._model.predict(encoded_reshaped).flatten()
@@ -77,7 +78,6 @@ class Agent:
     def register_new_observation(self, observation, action, new_observation, reward, done):
         self._replay_memory.append([observation, action, reward, new_observation, done])
 
-        # Update the Main Network using the Bellman Equation
         if self._steps % self._steps_per_train == 0 or done:
             self.train_model(self._replay_memory)
 
