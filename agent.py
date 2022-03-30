@@ -5,8 +5,7 @@ Most of the algorithm used here was taken from https://towardsdatascience.com/de
 
 import numpy as np
 from tensorflow import keras
-from collections import deque
-import random
+from agent_history import AgentHistory
 import json
 
 
@@ -33,35 +32,23 @@ class Agent:
         self._episode = 0
         self._episode_reward = 0
         self._model = model
-        self._replay_memory = deque(maxlen=self._max_memory_len)
         self._target_model = keras.models.clone_model(model)
+        self._agent_history = AgentHistory(self._max_memory_len)
 
-    def get_training_data(self, batch):
-        current_states = np.array([transition[0] for transition in batch])
-        current_qs_list = self._model.predict(current_states)
-        new_current_states = np.array([transition[3] for transition in batch])
-        future_qs_list = self._target_model.predict(new_current_states)
-        X = []
-        Y = []
-        for index, (observation, action, reward, new_observation, done) in enumerate(batch):
-            if not done:
-                max_future_q = reward + self._discount_factor * np.max(future_qs_list[index])
-            else:
-                max_future_q = reward
+    def get_training_data(self, observations, new_observations, rewards, actions, done_array):
+        current_qs_list = self._model.predict(observations)
+        future_qs_list = self._target_model.predict(new_observations)
+        max_future_qs = np.max(future_qs_list, axis=1)
+        max_future_qs = rewards + self._discount_factor * max_future_qs * (1 - done_array)
+        current_qs_list[np.arange(len(actions)), actions] = (1 - self._learning_rate) * current_qs_list[np.arange(len(actions)), actions] + self._learning_rate * max_future_qs
+        return observations, current_qs_list
 
-            current_qs = current_qs_list[index]
-            current_qs[action] = (1 - self._learning_rate) * current_qs[action] + self._learning_rate * max_future_q
-
-            X.append(observation)
-            Y.append(current_qs)
-        return X, Y
-
-    def train_model(self, replay_memory):
-        if len(replay_memory) < self._min_replay_size:
+    def train_model(self):
+        if self._agent_history.length < self._min_replay_size:
             return
 
-        batch = random.sample(replay_memory, self._batch_size)
-        X, Y = self.get_training_data(batch)
+        batch = self._agent_history.get_sample(self._batch_size)
+        X, Y = self.get_training_data(*batch)
         self._model.fit(np.array(X), np.array(Y), batch_size=self._batch_size, verbose=0, shuffle=True)
 
     def choose_action(self, observation):
@@ -76,15 +63,15 @@ class Agent:
         return action
 
     def register_new_observation(self, observation, action, new_observation, reward, done):
-        self._replay_memory.append([observation, action, reward, new_observation, done])
+        self._agent_history.update(action, observation, new_observation, done, reward)
 
         if self._steps % self._steps_per_train == 0 or done:
-            self.train_model(self._replay_memory)
+            self.train_model()
 
         self._episode_reward += reward
 
         if done:
-            print(f'Total training rewards: {self._episode_reward} after n steps = {self._episode}')
+            print(f'Episode {self._episode} reward: {self._episode_reward}')
             self._episode_reward += 1
 
             if self._steps >= self._steps_per_update:
