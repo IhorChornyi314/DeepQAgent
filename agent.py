@@ -10,10 +10,11 @@ import json
 
 
 class Agent:
-    def __init__(self, model, env, configfile='config.json', render=False):
+    def __init__(self, model, env, configfile='config.json', render=False, verbose=0):
         configs = json.load(open(configfile))
         self._env = env
         self._render = render
+        self._verbose = verbose
         self._epsilon = configs.get('epsilon') or 1
         self._min_epsilon = configs.get('min_epsilon') or 0.01
         self._max_epsilon = configs.get('max_epsilon') or 1
@@ -35,12 +36,13 @@ class Agent:
         self._target_model = keras.models.clone_model(model)
         self._agent_history = AgentHistory(self._max_memory_len)
 
-    def get_training_data(self, observations, new_observations, rewards, actions, done_array):
+    def _get_training_data(self, observations, new_observations, rewards, actions, done_array):
         current_qs_list = self._model.predict(observations)
         future_qs_list = self._target_model.predict(new_observations)
         max_future_qs = np.max(future_qs_list, axis=1)
         max_future_qs = rewards + self._discount_factor * max_future_qs * (1 - done_array)
-        current_qs_list[np.arange(len(actions)), actions] = (1 - self._learning_rate) * current_qs_list[np.arange(len(actions)), actions] + self._learning_rate * max_future_qs
+        indexes = np.arange(len(actions)), actions
+        current_qs_list[indexes] = (1 - self._learning_rate) * current_qs_list[indexes] + self._learning_rate * max_future_qs
         return observations, current_qs_list
 
     def train_model(self):
@@ -48,8 +50,8 @@ class Agent:
             return
 
         batch = self._agent_history.get_sample(self._batch_size)
-        X, Y = self.get_training_data(*batch)
-        self._model.fit(np.array(X), np.array(Y), batch_size=self._batch_size, verbose=0, shuffle=True)
+        x, y = self._get_training_data(*batch)
+        self._model.fit(x, y, batch_size=self._batch_size, verbose=0, shuffle=True)
 
     def choose_action(self, observation):
         random_number = np.random.rand()
@@ -71,11 +73,13 @@ class Agent:
         self._episode_reward += reward
 
         if done:
-            print(f'Episode {self._episode} reward: {self._episode_reward}')
+            if self._verbose > 1:
+                print(f'Episode {self._episode} reward: {self._episode_reward}')
             self._episode_reward += 1
 
             if self._steps >= self._steps_per_update:
-                print('Copying main network weights to the target network weights')
+                if self._verbose > 0:
+                    print('Copying main network weights to the target network weights')
                 self._target_model.set_weights(self._model.get_weights())
                 self._steps = 0
             self._episode += 1
