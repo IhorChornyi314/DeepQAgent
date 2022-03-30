@@ -5,7 +5,7 @@ Most of the algorithm used here was taken from https://towardsdatascience.com/de
 
 import numpy as np
 from tensorflow import keras
-from agent_history import AgentHistory
+from DeepQAgent.agent_history import AgentHistory
 import json
 
 
@@ -71,6 +71,7 @@ class Agent:
         return action
 
     def register_new_observation(self, observation, action, new_observation, reward, done):
+        self._steps += 1
         # Append buffers
         self._agent_history.update(action, observation, new_observation, done, reward)
 
@@ -101,7 +102,6 @@ class Agent:
             observation = self._env.reset()
             done = False
             while not done:
-                self._steps += 1
                 if self._render:
                     self._env.render()
 
