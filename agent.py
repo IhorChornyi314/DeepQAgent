@@ -12,9 +12,7 @@ import json
 class Agent:
     def __init__(self, model, env, configfile='config.json', render=False, verbose=0):
         configs = json.load(open(configfile))
-        self._env = env
-        self._render = render
-        self._verbose = verbose
+        # Initialize hyper-parameters
         self._epsilon = configs.get('epsilon') or 1
         self._min_epsilon = configs.get('min_epsilon') or 0.01
         self._max_epsilon = configs.get('max_epsilon') or 1
@@ -29,19 +27,26 @@ class Agent:
         self._min_replay_size = configs.get('min_replay_size') or 1000
         self._max_memory_len = configs.get('max_memory_length') or 10000
 
+        # Initialize counters and other attributes
         self._steps = 0
         self._episode = 0
         self._episode_reward = 0
         self._model = model
         self._target_model = keras.models.clone_model(model)
         self._agent_history = AgentHistory(self._max_memory_len)
+        self._env = env
+        self._render = render
+        self._verbose = verbose
 
     def _get_training_data(self, observations, new_observations, rewards, actions, done_array):
+        # Predict Q-Values for current and future observations
         current_qs_list = self._model.predict(observations)
         future_qs_list = self._target_model.predict(new_observations)
         max_future_qs = np.max(future_qs_list, axis=1)
+        # Apply the discount for future rewards where not done
         max_future_qs = rewards + self._discount_factor * max_future_qs * (1 - done_array)
         indexes = np.arange(len(actions)), actions
+        # Apply the Bellman Equation
         current_qs_list[indexes] = (1 - self._learning_rate) * current_qs_list[indexes] + self._learning_rate * max_future_qs
         return observations, current_qs_list
 
@@ -54,8 +59,9 @@ class Agent:
         self._model.fit(x, y, batch_size=self._batch_size, verbose=0, shuffle=True)
 
     def choose_action(self, observation):
-        random_number = np.random.rand()
-        if random_number <= self._epsilon:
+        # If random number smaller than epsilon - take random action,
+        # otherwise - take the action with max predicted Q-Value
+        if np.random.rand() <= self._epsilon:
             action = self._env.action_space.sample()
         else:
             encoded = observation
@@ -65,27 +71,31 @@ class Agent:
         return action
 
     def register_new_observation(self, observation, action, new_observation, reward, done):
+        # Append buffers
         self._agent_history.update(action, observation, new_observation, done, reward)
 
+        # Train the model if enough steps have passed
         if self._steps % self._steps_per_train == 0 or done:
             self.train_model()
 
+        # Register episode reward
         self._episode_reward += reward
 
         if done:
             if self._verbose > 1:
                 print(f'Episode {self._episode} reward: {self._episode_reward}')
-            self._episode_reward += 1
-
+            # Update the target model if enough steps have passed
             if self._steps >= self._steps_per_update:
                 if self._verbose > 0:
                     print('Copying main network weights to the target network weights')
                 self._target_model.set_weights(self._model.get_weights())
                 self._steps = 0
+            # Update episode counter and epsilon value
             self._episode += 1
             self._epsilon = self._min_epsilon + (self._max_epsilon - self._min_epsilon) * np.exp(-self._decay * self._episode)
 
     def train_agent(self):
+        # Run the loop of getting observation, choosing action and its impact and updating the network
         while self._episode < self._train_episodes:
             self._episode_reward = 0
             observation = self._env.reset()
